@@ -1,22 +1,16 @@
+from machine_learning.ml_models import fetch_historical_data, integrate_with_trading
 from services.binance_client import BinanceClient
+from signal_generator import generate_signal
 
 if __name__ == "__main__":
-    # Ініціалізація клієнта Binance у Testnet режимі
+    # Ініціалізація Binance Client
     binance_client = BinanceClient(use_testnet=True)
 
-    # Тестові операції
-    print("Отримання свічок:")
-    candles = binance_client.get_candlestick_data(symbol="BTCUSDT", interval="1m", limit=5)
-    print(candles)
+    # Отримання даних про свічки
+    candles = binance_client.get_candlestick_data(symbol="DOGEUSDT", interval="1m", limit=50)
+    close_prices = [float(candle[4]) for candle in candles]  # Ціна закриття
 
-    print("\nВідкриті ордери:")
-    open_orders = binance_client.get_open_orders()
-    print(open_orders)
+    # Генерація сигналу
+    signal = generate_signal(close_prices)
+    print(f"Згенерований сигнал: {signal}")
 
-    print("\nТестова купівля BTC:")
-    order = binance_client.place_order(symbol="BTCUSDT", side="buy", quantity=0.001)
-    print(order)
-
-    print("\nСтатус рахунку:")
-    account = binance_client.account_status()
-    print(account)

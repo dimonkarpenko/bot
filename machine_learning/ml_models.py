@@ -16,15 +16,19 @@ client = Client(API_KEY, API_SECRET)
 
 # Function to fetch historical market data
 def fetch_historical_data(symbol="BTCUSDT", interval="1h", lookback="1 month ago UTC"):
-    klines = client.get_historical_klines(symbol, interval, lookback)
-    df = pd.DataFrame(klines, columns=["timestamp", "open", "high", "low", "close", "volume", 
-                                       "close_time", "quote_asset_volume", "number_of_trades", 
-                                       "taker_buy_base", "taker_buy_quote", "ignore"])
-    df = df[["timestamp", "open", "high", "low", "close", "volume"]]
-    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
-    df.set_index("timestamp", inplace=True)
-    df = df.astype(float)
-    return df
+    try:
+        klines = client.get_historical_klines(symbol, interval, lookback)
+        df = pd.DataFrame(klines, columns=["timestamp", "open", "high", "low", "close", "volume", 
+                                           "close_time", "quote_asset_volume", "number_of_trades", 
+                                           "taker_buy_base", "taker_buy_quote", "ignore"])
+        df = df[["timestamp", "open", "high", "low", "close", "volume"]]
+        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+        df.set_index("timestamp", inplace=True)
+        df = df.astype(float)
+        return df
+    except Exception as e:
+        print(f"Error fetching data: {e}")
+        return None
 
 # Data Preprocessing
 def prepare_data(df, feature_column="close", look_back=60):
@@ -82,17 +86,21 @@ def integrate_with_trading(df, lstm_model, xgboost_model, scaler, look_back=60):
     scaled_latest = scaler.transform(latest_data["close"].values.reshape(-1, 1))
     lstm_input = np.reshape(scaled_latest, (1, look_back, 1))
 
-    # Predict future price
-    predicted_price = scaler.inverse_transform(lstm_model.predict(lstm_input))
-    print(f"Predicted Price: {predicted_price[0][0]}")
+    # Прогнозування ціни
+    try:
+        predicted_price = scaler.inverse_transform(lstm_model.predict(lstm_input))
+        print(f"Predicted Price: {predicted_price[0][0]}")
+    except Exception as e:
+        print(f"Error predicting price: {e}")
+        return
 
-    # Generate technical features
+    # Генерація сигналу
     df["returns"] = df["close"].pct_change()
     df.dropna(inplace=True)
     features = df[["returns", "volume"]].values
     signals = xgboost_model.predict(features[-1].reshape(1, -1))
 
-    # Combine ML predictions and technical signals
+    # Логіка прийняття рішення
     if signals[0] == 1 and df["close"].iloc[-1] < predicted_price[0][0]:
         print("Buy Signal")
     elif signals[0] == -1 and df["close"].iloc[-1] > predicted_price[0][0]:

@@ -2,6 +2,11 @@ from binance.client import Client
 from dotenv import load_dotenv
 import os
 
+import hmac
+import hashlib
+import time
+import requests
+
 # Завантаження змінних середовища з .env файлу
 dotenv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'config', '.env')
 load_dotenv(dotenv_path)
@@ -65,26 +70,46 @@ class BinanceClient:
             print(f"Error fetching open orders: {e}")
             return None
 
-    # 2. Виконання угод (Buy/Sell)
-    def place_order(self, symbol, side, quantity):
-        """
-        Виконує ринковий ордер на купівлю або продаж.
+    # # 2. Виконання угод (Buy/Sell)
+    # def place_order(self, symbol, side, quantity):
+    #     """
+    #     Виконує ринковий ордер на купівлю або продаж.
 
-        :param symbol: Торгова пара (наприклад, 'BTCUSDT').
-        :param side: Сторона угоди ('buy' або 'sell').
-        :param quantity: Кількість активу для ордера.
-        :return: Результат виконання ордера.
-        """
-        try:
-            if side.lower() == 'buy':
-                return self.client.order_market_buy(symbol=symbol, quantity=quantity)
-            elif side.lower() == 'sell':
-                return self.client.order_market_sell(symbol=symbol, quantity=quantity)
-            else:
-                raise ValueError("Side must be 'buy' or 'sell'")
-        except Exception as e:
-            print(f"Error placing order: {e}")
-            return None
+    #     :param symbol: Торгова пара (наприклад, 'BTCUSDT').
+    #     :param side: Сторона угоди ('buy' або 'sell').
+    #     :param quantity: Кількість активу для ордера.
+    #     :return: Результат виконання ордера.
+    #     """
+    #     try:
+    #         if side.lower() == 'buy':
+    #             return self.client.order_market_buy(symbol=symbol, quantity=quantity)
+    #         elif side.lower() == 'sell':
+    #             return self.client.order_market_sell(symbol=symbol, quantity=quantity)
+    #         else:
+    #             raise ValueError("Side must be 'buy' or 'sell'")
+    #     except Exception as e:
+    #         print(f"Error placing order: {e}")
+    #         return None
+    def place_order(self, symbol, side, quantity, price=None):
+        # """Виконує ордер"""
+        endpoint = f"{self.base_url}/v3/order"
+        params = {
+            "symbol": symbol,
+            "side": side.upper(),
+            "type": "MARKET",  # Змініть на LIMIT, якщо необхідно
+            "quantity": quantity,
+            "timestamp": int(time.time() * 1000)
+        }
+        query_string = "&".join([f"{key}={value}" for key, value in params.items()])
+        signature = hmac.new(self.api_secret.encode(), query_string.encode(), hashlib.sha256).hexdigest()
+        headers = {"X-MBX-APIKEY": self.api_key}
+        params["signature"] = signature
+
+        response = requests.post(endpoint, headers=headers, params=params)
+        if response.status_code == 200:
+            print(f"Ордер успішно виконано: {response.json()}")
+        else:
+            print(f"Помилка виконання ордера: {response.json()}")
 
     # 3. Моніторинг статусу рахунку
     def account_status(self):

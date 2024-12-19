@@ -54,6 +54,12 @@ class BinanceClient:
             print(f"Error fetching candlestick data: {e}")
             return None
 
+# # Приклад використання
+# candlestick_data = fetch_candlestick_data("BTCUSDT", "1m")
+# if candlestick_data:
+#     for item in candlestick_data:
+#         print(item)
+
     def get_open_orders(self, symbol=None):
         """
         Отримує відкриті ордери для певної торгової пари або для всіх.
@@ -124,6 +130,32 @@ class BinanceClient:
         except Exception as e:
             print(f"Error fetching account status: {e}")
             return None
+    
+    def fetch_candlestick_data(symbol, interval, limit=100):
+        url = f'https://testnet.binance.vision/api/v1/klines'
+        params = {'symbol': symbol, 'interval': interval, 'limit': limit}
+        
+        try:
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()  # Перевірка на помилки HTTP
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data:  # Перевірка, чи дані не є None або порожніми
+                    return data
+                else:
+                    print("Не отримано жодних даних.")
+                    return []
+            else:
+                print(f"Помилка при отриманні даних: {response.status_code}")
+                return []
+        except requests.exceptions.Timeout:
+            print("Виникла помилка тайм-ауту. Повторна спроба...")
+            time.sleep(5)
+            return fetch_candlestick_data(symbol, interval, limit)  # Повторна спроба
+        except requests.exceptions.RequestException as e:
+            print(f"Помилка запиту: {e}")
+            return []
 
 
 # # Приклад використання класу BinanceClient

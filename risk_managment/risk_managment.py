@@ -55,29 +55,3 @@ class RiskManagement:
         :param trade_result: Результат угоди (позитивний чи негативний).
         """
         self.account_balance += trade_result
-
-
-# # Приклад використання
-# if __name__ == "__main__":
-#     # Ініціалізація ризик-менеджменту
-#     risk_manager = RiskManagement(account_balance=1000, risk_per_trade=0.02)
-
-#     # Розрахунок позиції
-#     entry_price = 100
-#     stop_loss_price = 95
-#     position_size = risk_manager.calculate_position_size(entry_price, stop_loss_price)
-#     print(f"Рекомендований розмір позиції: {position_size:.2f}")
-
-#     # Розрахунок тейк-профіту
-#     take_profit_price = risk_manager.calculate_take_profit_price(entry_price)
-#     print(f"Ціна тейк-профіту: {take_profit_price:.2f}")
-
-#     # Розрахунок трейлінг-стопу
-#     current_price = 110
-#     trailing_stop_price = risk_manager.trailing_stop(current_price, trailing_percentage=0.05)
-#     print(f"Ціна трейлінг-стопу: {trailing_stop_price:.2f}")
-
-#     # Оновлення балансу після угоди
-#     trade_result = 50  # Припустимо, отриманий прибуток
-#     risk_manager.update_account_balance(trade_result)
-#     print(f"Оновлений баланс рахунку: {risk_manager.account_balance:.2f}")

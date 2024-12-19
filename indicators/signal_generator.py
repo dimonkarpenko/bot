@@ -19,4 +19,4 @@ def generate_signal(data):
     elif rsi[-1] > 70 and macd[-1] < signal_line[-1] and data[-1] < ema[-1]:
         return "sell"
     else:
-        return "hold"
+        return "hold still"

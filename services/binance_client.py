@@ -15,9 +15,6 @@ load_dotenv(dotenv_path)
 API_KEY = os.getenv('BINANCE_API_KEY')
 API_SECRET = os.getenv('BINANCE_API_SECRET')
 
-print(f"API Key: {API_KEY}")
-print(f"API Secret: {API_SECRET}")
-
 
 class BinanceClient:
     """
@@ -97,8 +94,10 @@ class BinanceClient:
     #         print(f"Error placing order: {e}")
     #         return None
     def place_order(self, symbol, side, quantity, price=None):
-        # """Виконує ордер"""
-        endpoint = f"{self.base_url}/v3/order"
+        # # """Виконує ордер"""
+        # endpoint = f"{self.base_url}/v3/order"
+        api_key = API_KEY
+        api_secret = API_SECRET
         params = {
             "symbol": symbol,
             "side": side.upper(),

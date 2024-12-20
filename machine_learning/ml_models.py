@@ -8,14 +8,29 @@ import xgboost as xgb
 import time
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
+from services.binance_client import BinanceClient
+from indicators.signal_generator import generate_signal
+from risk_managment.risk_managment import RiskManagement
+from config.logger_config import logger
+
+from services.binance_client import BinanceClient
+
+
 
 # Binance API setup
 API_KEY = "your_api_key"
 API_SECRET = "your_api_secret"
 client = Client(API_KEY, API_SECRET)
 
+# Ініціалізація Binance Client
+binance_client = BinanceClient(use_testnet=True)
+
+
+# Ініціалізація ризик-менеджменту
+risk_manager = RiskManagement(account_balance=1000, risk_per_trade=0.02)
+
 # Function to fetch historical market data
-def fetch_historical_data(symbol="MOVEUSDT", interval="1h", lookback="1 month ago UTC"):
+def fetch_historical_data(symbol="DOGEUSDT", interval="1h", lookback="1 month ago UTC"):
     try:
         klines = client.get_historical_klines(symbol, interval, lookback)
         df = pd.DataFrame(klines, columns=["timestamp", "open", "high", "low", "close", "volume", 
@@ -107,12 +122,43 @@ def integrate_with_trading(df, lstm_model, xgboost_model, scaler, look_back=60):
     # Логіка прийняття рішення
     price_threshold = 0.002  # 0.2% зміна ціни як поріг
 
-    if signals[0] == 1 and df["close"].iloc[-1] < predicted_price[0][0] * (1 - price_threshold):
-        print("Buy Signal")
-    elif signals[0] == 0 and df["close"].iloc[-1] > predicted_price[0][0] * (1 + price_threshold):
-        print("Sell Signal")
+    signal = ''
+
+    if signals[0] == 1 and df["close"].iloc[-1] < predicted_price[0][0] :
+        signal = 'buy'
+        print("Buy")
+    elif signals[0] == 0 and df["close"].iloc[-1] > predicted_price[0][0]:
+        signal = 'sell'
+        print("Sell")
     else:
         print("Hold it")
+
+    logger.info(signal)
+
+    if signal in ["buy", "sell"]:
+        print("Start trading...")
+        
+                # Управління ризиками
+        entry_price = df["close"].iloc[-1]
+        stop_loss_price = entry_price * (1 - risk_manager.risk_per_trade)
+        position_size = risk_manager.calculate_position_size(entry_price, stop_loss_price)
+        take_profit_price = risk_manager.calculate_take_profit_price(entry_price)
+
+        logger.info(f"Сигнал: {signal}, Ціна входу: {entry_price}, Стоп-лосс: {stop_loss_price}, Тейк-профіт: {take_profit_price}, Розмір позиції: {position_size}")
+
+                # Виконання угоди
+        if signal == "buy":
+            binance_client.place_order("DOGEUSDT", "BUY", position_size, entry_price)
+        elif signal == "sell":
+            binance_client.place_order("DOGEUSDT", "SELL", position_size, entry_price)
+
+                # Симуляція прибутку та оновлення балансу
+        trade_result = 50  # Припустимо, отриманий прибуток
+        risk_manager.update_account_balance(trade_result)
+
+                # Логування угоди
+        log_trade("DOGEUSDT", signal, position_size, entry_price, trade_result)
+        logger.info(f"Оновлений баланс рахунку: {risk_manager.account_balance:.2f}")
 
 
 
@@ -127,27 +173,27 @@ def integrate_with_trading(df, lstm_model, xgboost_model, scaler, look_back=60):
 #         X, y, scaler = prepare_data(df)
 
 #         # Train LSTM model
-#         lstm_model = build_lstm_model((X.shape[1], 1))
-#         lstm_model.fit(X, y, epochs=10, batch_size=32)
+        # lstm_model = build_lstm_model((X.shape[1], 1))
+        # lstm_model.fit(X, y, epochs=10, batch_size=32)
 
-#         # Prepare features for XGBoost
-#         df["returns"] = df["close"].pct_change()
-#         df["volume"] = df["volume"].shift(-1)
-#         df.dropna(inplace=True)
-#         X_xgb = df[["returns", "volume"]].values
-#         y_xgb = np.where(df["returns"] > 0, 1, 0)
+        # # Prepare features for XGBoost
+        # df["returns"] = df["close"].pct_change()
+        # df["volume"] = df["volume"].shift(-1)
+        # df.dropna(inplace=True)
+        # X_xgb = df[["returns", "volume"]].values
+        # y_xgb = np.where(df["returns"] > 0, 1, 0)
 
-#         # Train XGBoost model
-#         xgboost_model = build_xgboost_model(X_xgb, y_xgb)
+        # # Train XGBoost model
+        # xgboost_model = build_xgboost_model(X_xgb, y_xgb)
 
 #         # Start trading loop
 #         while True:
-#             df = fetch_historical_data()
-#             if df is None:
-#                 continue
-#             integrate_with_trading(df, lstm_model, xgboost_model, scaler)
-#             time.sleep(60)  # Пауза між кожним циклом
-#     except KeyboardInterrupt:
-#         print("Trading loop stopped.")
+    #         df = fetch_historical_data()
+    #         if df is None:
+    #             continue
+    #         integrate_with_trading(df, lstm_model, xgboost_model, scaler)
+    #         time.sleep(60)  # Пауза між кожним циклом
+    # except KeyboardInterrupt:
+    #     print("Trading loop stopped.")
 
 # trading_loop()

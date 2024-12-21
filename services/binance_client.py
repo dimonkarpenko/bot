@@ -1,34 +1,53 @@
 from binance.client import Client
 from dotenv import load_dotenv
 import os
-
-import hmac
-import hashlib
 import time
+import logging
 import requests
+
+# Налаштування логування
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Завантаження змінних середовища з .env файлу
 dotenv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'config', '.env')
 load_dotenv(dotenv_path)
 
-
 API_KEY = os.getenv('BINANCE_API_KEY')
 API_SECRET = os.getenv('BINANCE_API_SECRET')
 
+# Функція для логування ордерів
+def log_trade(order_data):
+    """
+    Логування даних про ордер.
+    
+    :param order_data: Дані про ордер.
+    """
+    logging.info(f"Торгова операція: {order_data}")
 
 class BinanceClient:
     """
     Клас для взаємодії з Binance API: отримання ринкових даних, виконання угод та моніторинг рахунку.
     """
-
-    def __init__(self, use_testnet = True):
-        # Ініціалізація Binance API клієнта
-        api_key = API_KEY
-        api_secret = API_SECRET
+    def __init__(self, use_testnet=True):
+        # Замість API_KEY і API_SECRET вставте свої ключі або використовуйте змінні оточення
+        api_key = os.getenv("BINANCE_API_KEY")
+        api_secret = os.getenv("BINANCE_API_SECRET")
+        
         self.client = Client(api_key, api_secret)
-
+        
+        # Встановлення URL залежно від типу середовища (тестове чи реальне)
         if use_testnet:
-            self.client.API_URL = "https://testnet.binance.vision/api" #Remove in the end
+            self.client.API_URL = 'https://testnet.binance.vision/api'
+        else:
+            self.client.API_URL = 'https://api.binance.com/api'
+
+    def get_current_price(self, symbol):
+        """Отримати поточну ціну для заданого символу."""
+        try:
+            ticker = self.client.get_symbol_ticker(symbol=symbol)
+            return float(ticker["price"])
+        except Exception as e:
+            raise RuntimeError(f"Помилка при отриманні ціни для {symbol}: {e}")
 
     # 1. Отримання ринкових даних
     def get_candlestick_data(self, symbol, interval='1m', limit=10):
@@ -51,12 +70,7 @@ class BinanceClient:
             print(f"Error fetching candlestick data: {e}")
             return None
 
-# # Приклад використання
-# candlestick_data = fetch_candlestick_data("BTCUSDT", "1m")
-# if candlestick_data:
-#     for item in candlestick_data:
-#         print(item)
-
+    # 2. Отримання відкритих ордерів
     def get_open_orders(self, symbol=None):
         """
         Отримує відкриті ордери для певної торгової пари або для всіх.
@@ -73,50 +87,59 @@ class BinanceClient:
             print(f"Error fetching open orders: {e}")
             return None
 
-    # # 2. Виконання угод (Buy/Sell)
-    # def place_order(self, symbol, side, quantity):
-    #     """
-    #     Виконує ринковий ордер на купівлю або продаж.
+    # 3. Виконання ордера
+    def place_order(self, symbol, side, quantity, price=None, order_type="MARKET"):
+        """
+        Виконує ордер на Binance.
 
-    #     :param symbol: Торгова пара (наприклад, 'BTCUSDT').
-    #     :param side: Сторона угоди ('buy' або 'sell').
-    #     :param quantity: Кількість активу для ордера.
-    #     :return: Результат виконання ордера.
-    #     """
-    #     try:
-    #         if side.lower() == 'buy':
-    #             return self.client.order_market_buy(symbol=symbol, quantity=quantity)
-    #         elif side.lower() == 'sell':
-    #             return self.client.order_market_sell(symbol=symbol, quantity=quantity)
-    #         else:
-    #             raise ValueError("Side must be 'buy' or 'sell'")
-    #     except Exception as e:
-    #         print(f"Error placing order: {e}")
-    #         return None
-    def place_order(self, symbol, side, quantity, price=None):
-        # # """Виконує ордер"""
-        # endpoint = f"{self.base_url}/v3/order"
-        api_key = API_KEY
-        api_secret = API_SECRET
-        params = {
-            "symbol": symbol,
-            "side": side.upper(),
-            "type": "MARKET",  # Змініть на LIMIT, якщо необхідно
-            "quantity": quantity,
-            "timestamp": int(time.time() * 1000)
-        }
-        query_string = "&".join([f"{key}={value}" for key, value in params.items()])
-        signature = hmac.new(self.api_secret.encode(), query_string.encode(), hashlib.sha256).hexdigest()
-        headers = {"X-MBX-APIKEY": self.api_key}
-        params["signature"] = signature
+        :param symbol: Тікер торгової пари (наприклад, 'BTCUSDT').
+        :param side: Напрямок угоди ('BUY' або 'SELL').
+        :param quantity: Кількість активу.
+        :param price: Ціна для лімітного ордера (необов'язково для ринкового ордера).
+        :param order_type: Тип ордера ('MARKET', 'LIMIT').
+        """
+        try:
+            # Отримання точності для торгової пари
+            symbol_info = self.client.get_symbol_info(symbol)
+            step_size = None
+            for filter in symbol_info['filters']:
+                if filter['filterType'] == 'LOT_SIZE':
+                    step_size = float(filter['stepSize'])
+                    break
+            
+            # Округлення кількості до підтримуваної точності
+            quantity = self._round_to_step_size(quantity, step_size)
 
-        response = requests.post(endpoint, headers=headers, params=params)
-        if response.status_code == 200:
-            print(f"Ордер успішно виконано: {response.json()}")
-        else:
-            print(f"Помилка виконання ордера: {response.json()}")
+            # Створення ордера
+            order = self.client.create_order(
+                symbol=symbol,
+                side=side.upper(),
+                type=order_type,
+                quantity=quantity,
+                price=price if order_type == "LIMIT" else None,
+                timeInForce="GTC" if order_type == "LIMIT" else None
+            )
+            
+            # Логування ордера
+            logger(order)
 
-    # 3. Моніторинг статусу рахунку
+            print(f"Ордер успішно виконано: {order}")
+            return order
+        except Exception as e:
+            print(f"Помилка виконання ордера: {e}")
+            return None
+
+    def _round_to_step_size(self, quantity, step_size):
+        """
+        Округлює кількість до підтримуваної точності для даної торгової пари.
+        
+        :param quantity: Кількість активу.
+        :param step_size: Крок для округлення.
+        :return: Округлена кількість.
+        """
+        return round(quantity / step_size) * step_size
+
+    # 4. Моніторинг статусу рахунку
     def account_status(self):
         """
         Отримує інформацію про статус рахунку.
@@ -129,55 +152,65 @@ class BinanceClient:
         except Exception as e:
             print(f"Error fetching account status: {e}")
             return None
-    
-    def fetch_candlestick_data(symbol, interval, limit=100):
-        url = f'https://testnet.binance.vision/api/v1/klines'
-        params = {'symbol': symbol, 'interval': interval, 'limit': limit}
-        
+
+    # 5. Отримання результату угоди
+    def get_trade_result(self, symbol, order_id):
+        """
+        Отримує результат виконаного ордера, тобто прибуток або збиток.
+
+        :param symbol: Торгова пара.
+        :param order_id: ID ордера.
+        :return: Результат угоди.
+        """
         try:
-            response = requests.get(url, params=params, timeout=30)
-            response.raise_for_status()  # Перевірка на помилки HTTP
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data:  # Перевірка, чи дані не є None або порожніми
-                    return data
-                else:
-                    print("Не отримано жодних даних.")
-                    return []
-            else:
-                print(f"Помилка при отриманні даних: {response.status_code}")
-                return []
-        except requests.exceptions.Timeout:
-            print("Виникла помилка тайм-ауту. Повторна спроба...")
-            time.sleep(5)
-            return fetch_candlestick_data(symbol, interval, limit)  # Повторна спроба
-        except requests.exceptions.RequestException as e:
-            print(f"Помилка запиту: {e}")
-            return []
+            order = self.client.get_order(symbol=symbol, orderId=order_id)
+            # Логіка для розрахунку прибутку чи збитку (залежно від типу ордера)
+            # Припустимо, що ми працюємо з ринковими ордерами, тому розрахуємо прибуток на основі поточної ціни
+            current_price = self.client.get_symbol_ticker(symbol=symbol)["price"]
+            entry_price = float(order["fills"][0]["price"])  # Ціна виконання ордера
+            trade_result = (float(current_price) - entry_price) * float(order["executedQty"])  # Прибуток/збиток
+
+            print(f"Результат угоди: {trade_result}")
+            return trade_result
+        except Exception as e:
+            print(f"Помилка при отриманні результату угоди: {e}")
+            return None
+    
+    # def get_current_price(self, symbol):
+    #     try:
+    #         url = f"{self.base_url}/api/v3/ticker/price?symbol={symbol}"
+    #         response = requests.get(url)
+    #         response.raise_for_status()
+    #         return float(response.json()['price'])
+    #     except requests.exceptions.RequestException as e:
+    #         logger.error(f"Помилка під час отримання ціни для {symbol}: {e}")
+    #         return None
 
 
-# # Приклад використання класу BinanceClient
+
+# # Виконання реальної угоди
 # if __name__ == "__main__":
 #     # Ініціалізація клієнта
 #     binance_client = BinanceClient()
-    
-#     # Отримання даних про свічки
-#     print("Candlestick Data:")
-#     candles = binance_client.get_candlestick_data(symbol="BTCUSDT", interval="1m", limit=5)
-#     print(candles)
 
-#     # Отримання відкритих ордерів
-#     print("\nOpen Orders:")
-#     open_orders = binance_client.get_open_orders(symbol="BTCUSDT")
-#     print(open_orders)
+#     # Параметри угоди
+#     signal = "buy"  # або "sell"
+#     symbol = "DOGEUSDT"
+#     position_size = 100  # Кількість DOGE для покупки/продажу
+#     entry_price = 0.32384  # Ціна входу
 
-#     # Виконання купівлі (будьте обережні при реальному виконанні!)
-#     # print("\nPlacing Buy Order:")
-#     # buy_order = binance_client.place_order(symbol="BTCUSDT", side="buy", quantity=0.001)
-#     # print(buy_order)
+#     # Виконання угоди
+#     if signal == "buy":
+#         order = binance_client.place_order(symbol, "BUY", position_size, entry_price)
+#     elif signal == "sell":
+#         order = binance_client.place_order(symbol, "SELL", position_size, entry_price)
 
-#     # Моніторинг статусу рахунку
-#     print("\nAccount Status:")
-#     account = binance_client.account_status()
-#     print(account)
+#     # Якщо ордер виконаний, отримуємо результат угоди
+#     if order:
+#         order_id = order['orderId']
+#         trade_result = binance_client.get_trade_result(symbol, order_id)
+        
+#         # Оновлення балансу
+#         if trade_result:
+#             binance_client.account_status()  # Тут можна оновити баланс рахунку на основі результату угоди
+#             print(f"Оновлений баланс після угоди: {trade_result}")

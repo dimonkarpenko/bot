@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import logging
 from binance.client import Client
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
@@ -13,10 +14,6 @@ from indicators.signal_generator import generate_signal
 from risk_managment.risk_managment import RiskManagement
 from config.logger_config import logger
 
-from services.binance_client import BinanceClient
-
-
-
 # Binance API setup
 API_KEY = "your_api_key"
 API_SECRET = "your_api_secret"
@@ -25,12 +22,11 @@ client = Client(API_KEY, API_SECRET)
 # Ініціалізація Binance Client
 binance_client = BinanceClient(use_testnet=True)
 
-
 # Ініціалізація ризик-менеджменту
 risk_manager = RiskManagement(account_balance=1000, risk_per_trade=0.02)
 
 # Function to fetch historical market data
-def fetch_historical_data(symbol="DOGEUSDT", interval="1h", lookback="1 month ago UTC"):
+def fetch_historical_data(symbol="DOGEUSDT", interval="1d", lookback="1 month ago UTC"):
     try:
         klines = client.get_historical_klines(symbol, interval, lookback)
         df = pd.DataFrame(klines, columns=["timestamp", "open", "high", "low", "close", "volume", 
@@ -109,7 +105,6 @@ def integrate_with_trading(df, lstm_model, xgboost_model, scaler, look_back=60):
     # Генерація сигналу
     df["returns"] = df["close"].pct_change()
     df["volume"] = df["volume"].shift(-1)
-    
     df.dropna(inplace=True)
 
     X_xgb = df[["returns", "volume"]].values
@@ -119,26 +114,32 @@ def integrate_with_trading(df, lstm_model, xgboost_model, scaler, look_back=60):
 
     print(f"Signal from XGBoost: {signals[0]}")  # Перевірка сигналу
 
+
     # Логіка прийняття рішення
-    price_threshold = 0.002  # 0.2% зміна ціни як поріг
+    price_threshold = 0.0002  # 0.2% зміна ціни як поріг
 
     signal = ''
 
-    if signals[0] == 1 and df["close"].iloc[-1] < predicted_price[0][0] :
-        signal = 'buy'
-        print("Buy")
-    elif signals[0] == 0 and df["close"].iloc[-1] > predicted_price[0][0]:
-        signal = 'sell'
-        print("Sell")
-    else:
-        print("Hold it")
+    current_price = df["close"].iloc[-1]
+    predicted = predicted_price[0][0]
 
-    logger.info(signal)
+    if signals[0] == 1 and current_price < predicted * (1 - price_threshold):
+        signal = 'buy'
+        print("Buy: Current Price =", current_price, "Predicted Price =", predicted)
+    elif signals[0] == 0 and current_price > predicted * (1 + price_threshold):
+        signal = 'sell'
+        print("Sell: Current Price =", current_price, "Predicted Price =", predicted)
+    else:
+        signal = 'hold'
+        print("Hold it: Current Price =", current_price, "Predicted Price =", predicted)
+
+    logger.info(f"Signal: {signal}, Current Price: {current_price}, Predicted Price: {predicted}")
+
 
     if signal in ["buy", "sell"]:
         print("Start trading...")
         
-                # Управління ризиками
+        # Управління ризиками
         entry_price = df["close"].iloc[-1]
         stop_loss_price = entry_price * (1 - risk_manager.risk_per_trade)
         position_size = risk_manager.calculate_position_size(entry_price, stop_loss_price)
@@ -146,54 +147,19 @@ def integrate_with_trading(df, lstm_model, xgboost_model, scaler, look_back=60):
 
         logger.info(f"Сигнал: {signal}, Ціна входу: {entry_price}, Стоп-лосс: {stop_loss_price}, Тейк-профіт: {take_profit_price}, Розмір позиції: {position_size}")
 
-                # Виконання угоди
+        # Виконання угоди
         if signal == "buy":
-            binance_client.place_order("DOGEUSDT", "BUY", position_size, entry_price)
+            order = binance_client.place_order(symbol, "BUY", position_size, entry_price)
         elif signal == "sell":
-            binance_client.place_order("DOGEUSDT", "SELL", position_size, entry_price)
+            order = binance_client.place_order(symbol, "SELL", position_size, entry_price)
 
-                # Симуляція прибутку та оновлення балансу
-        trade_result = 50  # Припустимо, отриманий прибуток
-        risk_manager.update_account_balance(trade_result)
-
-                # Логування угоди
-        log_trade("DOGEUSDT", signal, position_size, entry_price, trade_result)
-        logger.info(f"Оновлений баланс рахунку: {risk_manager.account_balance:.2f}")
-
-
-
-# Main loop for training models and trading
-# def trading_loop():
-#     try:
-#         # Fetch historical data and train models
-#         df = fetch_historical_data()
-#         if df is None:
-#             return
+        if order:
+            order_id = order['orderId']
+            trade_result = binance_client.get_trade_result(symbol, order_id)
         
-#         X, y, scaler = prepare_data(df)
+            # Оновлення балансу
+            if trade_result:
+                binance_client.account_status()  # Тут можна оновити баланс рахунку на основі результату угоди
+                print(f"Оновлений баланс після угоди: {trade_result}")
 
-#         # Train LSTM model
-        # lstm_model = build_lstm_model((X.shape[1], 1))
-        # lstm_model.fit(X, y, epochs=10, batch_size=32)
-
-        # # Prepare features for XGBoost
-        # df["returns"] = df["close"].pct_change()
-        # df["volume"] = df["volume"].shift(-1)
-        # df.dropna(inplace=True)
-        # X_xgb = df[["returns", "volume"]].values
-        # y_xgb = np.where(df["returns"] > 0, 1, 0)
-
-        # # Train XGBoost model
-        # xgboost_model = build_xgboost_model(X_xgb, y_xgb)
-
-#         # Start trading loop
-#         while True:
-    #         df = fetch_historical_data()
-    #         if df is None:
-    #             continue
-    #         integrate_with_trading(df, lstm_model, xgboost_model, scaler)
-    #         time.sleep(60)  # Пауза між кожним циклом
-    # except KeyboardInterrupt:
-    #     print("Trading loop stopped.")
-
-# trading_loop()
+        logger.info(f"Оновлений баланс рахунку: {risk_manager.account_balance:.2f}")

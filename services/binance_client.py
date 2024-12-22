@@ -7,6 +7,7 @@ import requests
 
 # Налаштування логування
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger()
 
 # Завантаження змінних середовища з .env файлу
 dotenv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'config', '.env')
@@ -88,7 +89,7 @@ class BinanceClient:
             return None
 
     # 3. Виконання ордера
-    def place_order(self, symbol, side, quantity, price=None, order_type="MARKET"):
+    def place_order(self, symbol, side, quantity, price=None, order_type="LIMIT"):
         """
         Виконує ордер на Binance.
 
@@ -102,7 +103,7 @@ class BinanceClient:
         try:
             # Отримання точності для торгової пари
             symbol_info = self.client.get_symbol_info(symbol)
-            logger.info(f"symbol info - {symbol_info}")
+            # logger.info(f"symbol info - {symbol_info}")
             step_size = None
             for filter in symbol_info['filters']:
                 if filter['filterType'] == 'LOT_SIZE':
@@ -156,27 +157,34 @@ class BinanceClient:
             return None
 
     # 5. Отримання результату угоди
-    def get_trade_result(self, symbol, order_id):
-        """
-        Отримує результат виконаного ордера, тобто прибуток або збиток.
+def get_trade_result(self, symbol, order):
+    """
+    Отримує результат виконаного ордера, тобто прибуток або збиток.
 
-        :param symbol: Торгова пара.
-        :param order_id: ID ордера.
-        :return: Результат угоди.
-        """
-        try:
-            order = self.client.get_order(symbol=symbol, orderId=order_id)
-            # Логіка для розрахунку прибутку чи збитку (залежно від типу ордера)
-            # Припустимо, що ми працюємо з ринковими ордерами, тому розрахуємо прибуток на основі поточної ціни
-            current_price = self.client.get_symbol_ticker(symbol=symbol)["price"]
-            entry_price = float(order["fills"][0]["price"])  # Ціна виконання ордера
-            trade_result = (float(current_price) - entry_price) * float(order["executedQty"])  # Прибуток/збиток
-
-            print(f"Результат угоди: {trade_result}")
-            return trade_result
-        except Exception as e:
-            print(f"Помилка при отриманні результату угоди: {e}")
+    :param symbol: Торгова пара.
+    :param order: Об'єкт ордера, отриманий при створенні.
+    :return: Результат угоди.
+    """
+    try:
+        # Поточна ціна ринку
+        current_price = float(self.client.get_symbol_ticker(symbol=symbol)["price"])
+        
+        # Перевірка, чи є 'fills' в ордері
+        if "fills" not in order:
+            print(f"Поле 'fills' відсутнє в ордері: {order}")
             return None
+
+        # Розрахунок прибутку/збитку
+        entry_price = float(order["fills"][0]["price"])  # Ціна виконання ордера
+        executed_qty = float(order["executedQty"])  # Кількість виконаного ордера
+        trade_result = (current_price - entry_price) * executed_qty  # Прибуток/збиток
+
+        print(f"Результат угоди: {trade_result}")
+        return trade_result
+    except Exception as e:
+        print(f"Помилка при отриманні результату угоди: {e}")
+        return None
+
     
     # def get_current_price(self, symbol):
     #     try:

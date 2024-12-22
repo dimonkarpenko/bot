@@ -143,7 +143,10 @@ def start_trading(message):
     try:
         bot.send_message(chat_id, "Trading bot is starting! Trading initiated...")
         logger.info(f"Trading started for {chat_id} with pair {crypto_pair} and amount {trading_amount}")
-        trading_loop(chat_id)
+
+        # Викликаємо `trading_loop` у новому потоці
+        trading_thread = threading.Thread(target=trading_loop, args=(chat_id,))
+        trading_thread.start()
     except Exception as e:
         logger.error(f"Error in start_trading: {e}")
         bot.send_message(chat_id, "An error occurred while starting the trading bot. Please try again.")
@@ -168,6 +171,7 @@ def trading_loop(chat_id):
             with data_lock:
                 crypto_pair = user_data.get(chat_id, {}).get("crypto_pair")
 
+                logger.info(f"Integrating trading logic for: {crypto_pair}")
             if not crypto_pair:
                 logger.warning(f"Crypto pair for {chat_id} is not set. Skipping iteration.")
                 time.sleep(60)
@@ -211,7 +215,13 @@ def trading_loop(chat_id):
             xgboost_model = build_xgboost_model(X_xgb, y_xgb)
 
             try:
-                integrate_with_trading(symbol=crypto_pair, df, lstm_model, xgboost_model, scaler)
+                integrate_with_trading(
+                    symbol=crypto_pair, 
+                    df=df, 
+                    lstm_model=lstm_model, 
+                    xgboost_model=xgboost_model, 
+                    scaler=scaler
+                )
             except Exception as e:
                 logger.error(f"Error in integrate_with_trading: {e}")
                 time.sleep(60)

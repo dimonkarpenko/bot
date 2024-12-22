@@ -50,7 +50,7 @@ class BinanceClient:
             raise RuntimeError(f"Помилка при отриманні ціни для {symbol}: {e}")
 
     # 1. Отримання ринкових даних
-    def get_candlestick_data(self, symbol, interval='1m', limit=10):
+    def get_candlestick_data(self, symbol, interval='1d', limit=10):
         """
         Отримує історичні дані про свічки для певної торгової пари.
         
@@ -98,9 +98,11 @@ class BinanceClient:
         :param price: Ціна для лімітного ордера (необов'язково для ринкового ордера).
         :param order_type: Тип ордера ('MARKET', 'LIMIT').
         """
+        
         try:
             # Отримання точності для торгової пари
             symbol_info = self.client.get_symbol_info(symbol)
+            logger.info(f"symbol info - {symbol_info}")
             step_size = None
             for filter in symbol_info['filters']:
                 if filter['filterType'] == 'LOT_SIZE':
@@ -121,7 +123,7 @@ class BinanceClient:
             )
             
             # Логування ордера
-            logger(order)
+            log_trade(order)
 
             print(f"Ордер успішно виконано: {order}")
             return order

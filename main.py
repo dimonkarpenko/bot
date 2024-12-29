@@ -13,6 +13,7 @@ from machine_learning.ml_models import (
     build_lstm_model,
     build_xgboost_model,
     integrate_with_trading,
+    check_predicted
 )
 from services.binance_client import BinanceClient
 from indicators.signal_generator import generate_signal
@@ -78,6 +79,7 @@ def start_command(message):
     with data_lock:
         user_data[chat_id] = {"crypto_pair": None, "trading_amount": None}
     bot.send_message(chat_id, "Welcome! Please enter a cryptocurrency pair (e.g., BTCUSDT).")
+    
 
 @bot.message_handler(func=lambda message: user_data.get(message.chat.id, {}).get("crypto_pair") is None)
 def set_crypto_pair(message):
@@ -150,6 +152,44 @@ def start_trading(message):
     except Exception as e:
         logger.error(f"Error in start_trading: {e}")
         bot.send_message(chat_id, "An error occurred while starting the trading bot. Please try again.")
+
+@bot.message_handler(commands=["predicted_price"])
+def predicted_price(message):
+    chat_id = message.chat.id
+    try:
+        with data_lock:
+            trading_data = user_data.get(chat_id, {})
+        crypto_pair = trading_data.get("crypto_pair")
+        
+        if not crypto_pair:
+            bot.send_message(chat_id, "Спочатку задайте торгову пару за допомогою команди /start.")
+            return
+        
+        logger.info(f"Отримано торгову пару: {crypto_pair}")
+        
+        # Отримання історичних даних
+        df = fetch_historical_data(symbol=crypto_pair, interval="30m", lookback="1 year ago UTC")
+        logger.info(f"Отримані історичні дані: {df.head() if df is not None else 'No data'}")
+        
+        if df is None or df.empty:
+            bot.send_message(chat_id, "Не вдалося отримати історичні дані для цієї пари. Спробуйте пізніше.")
+            logger.error(f"Не вдалося отримати дані для пари {crypto_pair}")
+            return 
+
+        # Передбачення ціни
+        predicted_price = check_predicted(lstm_model=lstm_model, xgboost_model=xgboost_model, df=df, look_back=120)
+        logger.info(f"Передбачена ціна: {predicted_price}")
+        
+        if predicted_price is None:
+            bot.send_message(chat_id, "Не вдалося отримати передбачену ціну, оскільки дані відсутні.")
+            return
+
+        # Показ передбаченої ціни
+        bot.send_message(chat_id, f"Передбачена ціна для {crypto_pair}: {predicted_price} USD")
+    except Exception as e:
+        logger.error(f"Error in predicted_price: {e}")
+        bot.send_message(chat_id, "Не вдалося отримати передбачену ціну. Спробуйте пізніше.")
+
 
 def safe_get_price(crypto_pair):
     if crypto_pair and is_valid_symbol(crypto_pair):

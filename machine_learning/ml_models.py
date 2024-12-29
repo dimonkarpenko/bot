@@ -12,6 +12,8 @@ from services.binance_client import BinanceClient
 from indicators.signal_generator import generate_signal
 from risk_managment.risk_managment import RiskManagement
 from config.logger_config import logger
+from services.binance_client import BinanceClient
+
 
 # Binance API setup
 API_KEY = "your_api_key"
@@ -25,7 +27,7 @@ binance_client = BinanceClient(use_testnet=True)
 risk_manager = RiskManagement(account_balance=1000, risk_per_trade=0.02)
 
 # Function to fetch historical market data
-def fetch_historical_data(symbol, interval="1h", lookback="1 year ago UTC"):
+def fetch_historical_data(symbol, interval="1d", lookback="1 year ago UTC"):
     try:
         klines = client.get_historical_klines(symbol, interval, lookback)
         df = pd.DataFrame(klines, columns=["timestamp", "open", "high", "low", "close", "volume", 
@@ -118,6 +120,100 @@ def build_xgboost_model(X, y):
         logger.error(f"Error building XGBoost model: {e}")
         return None
 
+# Функція для передбачення ціни за допомогою LSTM# Модель LSTM
+def build_lstm_model(input_shape):
+    model = Sequential()
+    model.add(LSTM(units=100, return_sequences=True, input_shape=input_shape))
+    model.add(LSTM(units=100, return_sequences=False))
+    model.add(Dense(units=50))
+    model.add(Dense(units=1))
+    model.compile(optimizer="adam", loss="mean_squared_error")
+    return model
+
+# Функція для передбачення ціни за допомогою LSTM
+def predicted_lstm(lstm_model, df, look_back=120):
+    try:
+        if lstm_model is None:
+            logger.error("Модель LSTM не визначена.")
+            return None
+        
+        if df.empty or len(df) < look_back:
+            logger.error("Недостатньо даних для передбачення LSTM.")
+            return None
+
+        latest_data = df[-look_back:]["close"].values.reshape(-1, 1)
+        scaler = MinMaxScaler(feature_range=(0, 1))
+        scaled_latest = scaler.fit_transform(latest_data)
+        lstm_input = np.reshape(scaled_latest, (1, look_back, 1))
+
+        predicted_price_of_lstm = lstm_model.predict(lstm_input)
+        predicted_price_of_lstm = scaler.inverse_transform(predicted_price_of_lstm)
+
+        logger.info(f"Передбачена ціна за допомогою LSTM: {predicted_price_of_lstm[0][0]}")
+        return predicted_price_of_lstm[0][0]
+
+    except Exception as e:
+        logger.error(f"Помилка в передбаченні LSTM: {e}")
+        return None
+
+
+# Функція для передбачення ціни за допомогою XGBoost
+def predicted_xgboost(xgboost_model, df):
+    try:
+        if df.empty:
+            logger.error("Недостатньо даних для передбачення XGBoost.")
+            return None
+
+        df["returns"] = df["close"].pct_change()
+        df.dropna(inplace=True)
+        X_xgb = df[["returns", "volume"]].values
+
+        predicted_price_of_xgb = model.predict(X_xgb[-1].reshape(1, -1))
+
+        logger.info(f"Передбачена ціна за допомогою XGBoost: {predicted_price_of_xgb[0]}")
+        return predicted_price_of_xgb[0]
+
+    except Exception as e:
+        logger.error(f"Error in XGBoost prediction: {e}")
+        return None
+
+# Загальна функція для передбачення
+def check_predicted(lstm_model, xgboost_model, df, look_back=120):
+    try:
+        # Check if there is enough data for predictions
+        if len(df) < look_back:
+            logger.error(f"Insufficient data for prediction. Need at least {look_back} data points.")
+            return None
+        
+        # Предсказание цены с использованием LSTM
+        predicted_lstm_price = predicted_lstm(lstm_model, df, look_back)
+        
+        # Предсказание цены с использованием XGBoost
+        predicted_xgboost_price = predicted_xgboost(xgboost_model, df)
+
+        if predicted_lstm_price is None or predicted_xgboost_price is None:
+            logger.error("Не вдалося здійснити передбачення з однієї або обох моделей.")
+            return None
+
+        # Вычисление среднего значения предсказанных цен
+        predicted_price_of_crypto = (predicted_lstm_price + predicted_xgboost_price) / 2
+
+        logger.info(f"Середнє передбачення ціни: {predicted_price_of_crypto}")
+
+        # Сохранение результата в CSV
+        result_df = pd.DataFrame({
+            "predicted_price": [predicted_price_of_crypto],
+            "timestamp": [pd.to_datetime('now')]
+        })
+        result_df.to_csv("predicted_prices.csv", mode="a", header=False, index=False)
+
+        return predicted_price_of_crypto
+
+    except Exception as e:
+        logger.error(f"Error in combined prediction: {e}")
+        return None
+
+
 # Integration with Trading Loop
 # Integration with Trading Loop
 def integrate_with_trading(df, symbol, lstm_model, xgboost_model, scaler, look_back=120):
@@ -177,5 +273,6 @@ def integrate_with_trading(df, symbol, lstm_model, xgboost_model, scaler, look_b
                 if trade_result:
                     binance_client.account_status()
                     logger.info(f"Оновлений баланс після угоди: {trade_result}")
+
     except Exception as e:
         logger.error(f"Error in trading loop: {e}")

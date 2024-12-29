@@ -16,14 +16,13 @@ load_dotenv(dotenv_path)
 API_KEY = os.getenv('BINANCE_API_KEY')
 API_SECRET = os.getenv('BINANCE_API_SECRET')
 
-# Функція для логування ордерів
-def log_trade(order_data):
-    """
-    Логування даних про ордер.
-    
-    :param order_data: Дані про ордер.
-    """
-    logging.info(f"Торгова операція: {order_data}")
+def log_trade(symbol, action, position_size, entry_price, result):
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute(
+        "INSERT INTO trades (timestamp, symbol, action, position_size, entry_price, result) VALUES (?, ?, ?, ?, ?, ?)",
+        (timestamp, symbol, action, position_size, entry_price, result),
+    )
+    conn.commit()
 
 class BinanceClient:
     """
